@@ -58,7 +58,7 @@ for as in 1 2 4 8 16 32 64 128; do
 		# Dwarfs
 		echo "Creating Dwarfs archive"
 		archive="../$rdir/archives/${as}_${bs}.dwarfs"
-		dwarfs_time=$((time /tmp/dwarfs/bin/mkdwarfs -l9 -S$bs --log-level warn --no-progress -i . -o $archive) |& tail -n 1 | sed "s/s//")
+		dwarfs_time=$((time /tmp/dwarfs/bin/mkdwarfs -l9 --order=path -S$bs --log-level warn --no-progress -i . -o $archive) |& tail -n 1 | sed "s/s//")
 		dwarfs_size=$(echo "$(du -b $archive | cut -d"	" -f 1)")
 		echo -n "\t$dwarfs_size" >> ../$rdir/${csv_files[1]}
 		echo -n "\t$dwarfs_time" >> ../$rdir/${csv_files[2]}
@@ -92,9 +92,10 @@ for as in 1 2 4 8 16 32 64 128; do
 	cd ../
 done
 
-
-$BASEDIR/csv_to_md.sh create-size 1 > create-size.md
-$BASEDIR/csv_to_md.sh create-time 0 > create-time.md
+cd $rdir
+../$BASEDIR/csv_to_md.sh create-size 1 > create-size.md
+../$BASEDIR/csv_to_md.sh create-time 0 > create-time.md
+cd ../
 
 rm -rf tmp
 

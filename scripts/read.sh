@@ -69,6 +69,6 @@ for as in 1 2 4 8 16 32 64 128; do
 	done
 done
 
-$BASEDIR/csv_to_md.sh read-time.${cmd} 0 > read-time.${cmd}.md
+../$BASEDIR/csv_to_md.sh read-time.${cmd} 0 > read-time.${cmd}.md
 
 cd ../

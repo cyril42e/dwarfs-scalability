@@ -8,15 +8,8 @@ reading the content.
 
 - [Context](#context)
 - [Benchmark setup](#benchmark-setup)
-  - [Data description](#data-description)
-  - [Commands description](#commands-description)
-  - [Software description](#software-description)
-  - [Host description](#host-description)
-- [Analysis](#analysis)
-  - [Creation time](#creation-time)
-  - [Compression ratio](#compression-ratio)
-  - [Reading time](#reading-time)
-- [Conclusion](#conclusion)
+- [Initial Analysis](#initial-analysis)
+- [Analysis with order=path](#analysis-with-orderpath)
 
 ## Context
 
@@ -52,6 +45,8 @@ I decided to test all block size and archive size combinations.
 Note that this analysis only focuses on the particular type of data that I have,
 with a specific use case, and cannot be generalized. However it still highlights the behavior of
 DwarFS in this particular case.
+
+Spoiler: some tuning allows to fix the issue (option `--order=path`).
 
 ## Benchmark setup
 
@@ -126,7 +121,7 @@ siblings        : 8
 cpu cores       : 4
 ```
 
-## Analysis
+## Initial Analysis
 
 I created and tested archives with the combinations of:
   * compression with different block sizes, from $2^{16}$ (64kB) to $2^{30}$ (1GB).
@@ -307,14 +302,123 @@ The following plot allows to visualize these results.
       For instance with block size of 16MB (24), reading speed is still reasonable with archives
       of 3.2GB (3.8s), but significantly increases with archives of 6.5GB (44s).
 
-## Conclusion
+### Conclusion
 
-DwarFS seems to exhibit on this dataset very poor scalability with the size of the archive,
+DwarFS seemed to exhibit on this dataset very poor scalability with the size of the archive,
 which does not allow to take advantage of its better compression ratio than SquashFS.
 
 With my target of storing 1 month archives (close to 32 days in this benchmark),
-I am currently left with the choice between:
+at this point I was left with the choice between:
   * Using Tar archives, that compress optimally around 120MB, but that require decompression
     or conversion (e.g. with `tar2sqfs`) before being usable.
   * Using SquashFS archives with block size 20, or DwarFS archives with block size 18,
     that offer good reading speed, but compress only around 240MB, i.e. twice as large.
+
+So I opened an [issue](https://github.com/mhx/dwarfs/issues/216) on DwarFS
+bug tracker in order to present these results and get some help.
+
+## Analysis with order=path
+
+The author of DwarFS made an extensive answer, and pointed out that at level 9, DwarFS enables
+a similarity files ordering called `nilsimsa`, in order to improve compression ratio.
+It just all made sense that sequential reads were then transformed into random reads into the
+archive, and that it would slow down the read with higher block size and archive size.
+
+As a consequence I ran again the benchmark with option `--order=path`.
+
+### Creation time
+
+| days | size | files | tar_size | . | 16 | 18 | 20 | 22 | 24 | 26 | 28 | 30 |
+| ---- | ---- | ----- | -------- | - | -- | -- | -- | -- | -- | -- | -- | -- |
+| **DwarFS** |
+| 1 | 416.94M | 8311 | 4.08M | . | 20.03 | 13.42 | 11.43 | 10.30 | 10.60 | 14.57 | 31.39 | 43.41 |
+| 2 | 832.06M | 16683 | 8.16M | . | 40.10 | 26.73 | 22.76 | 20.39 | 21.04 | 25.57 | 41.67 | 90.95 |
+| 4 | 1.59G | 28122 | 15.26M | . | 76.71 | 51.10 | 43.24 | 38.15 | 37.93 | 45.86 | 60.08 | 128.84 |
+| 8 | 3.25G | 63744 | 31.44M | . | 159.22 | 105.46 | 88.86 | 78.63 | 77.94 | 88.10 | 108.83 | 252.04 |
+| 16 | 6.49G | 133465 | 62.48M | . | 317.62 | 210.61 | 177.44 | 156.68 | 154.77 | 168.28 | 206.57 | 411.30 |
+| 32 | 12.94G | 241317 | 123.55M | . | 628.50 | 419.31 | 354.74 | 314.70 | 310.90 | 335.75 | 402.67 | 828.00 |
+| 64 | 25.97G | 479850 | 252.04M | . | 1268.11 | 859.96 | 730.01 | 653.61 | 658.05 | 727.55 | 836.62 | 1692.26 |
+| 128 | 50.88G | 957070 | 498.69M | . | 2528.17 | 1715.75 | 1447.08 | 1299.39 | 1322.23 | 1463.04 | 1639.86 | 3313.64 |
+| **DwarFS p** |
+| 1 | 416.94M | 8311 | 4.08M | . | 20.86 | 15.09 | 12.98 | 10.68 | 10.15 | 13.84 | 29.62 | 42.17 |
+| 2 | 832.06M | 16683 | 8.16M | . | 44.56 | 33.33 | 25.92 | 21.12 | 19.35 | 22.92 | 39.07 | 86.26 |
+| 4 | 1.59G | 28122 | 15.26M | . | 79.26 | 57.65 | 49.51 | 40.41 | 36.07 | 40.98 | 56.80 | 123.85 |
+| 8 | 3.25G | 63744 | 31.44M | . | 174.63 | 119.09 | 102.21 | 83.10 | 72.74 | 77.95 | 102.87 | 240.82 |
+| 16 | 6.49G | 133465 | 62.48M | . | 335.23 | 238.30 | 208.05 | 175.92 | 148.05 | 154.81 | 191.68 | 393.51 |
+| 32 | 12.94G | 241317 | 123.55M | . | 677.64 | 508.16 | 445.66 | 359.56 | 326.44 | 381.09 | 426.86 | 822.48 |
+| 64 | 25.97G | 479850 | 252.04M | . | 1291.32 | 962.60 | 821.22 | 685.19 | 632.57 | 693.45 | 786.34 | 1626.92 |
+| 128 | 50.88G | 957070 | 498.69M | . | 2567.01 | 1910.97 | 1647.08 | 1352.30 | 1252.67 | 1356.50 | 1523.59 | 3152.92 |
+
+![create-time-path](./results/create-time-path.png)
+
+#### Observations
+
+  * Depending on block size, compression speed is either a bit slower or a bit faster,
+    but always in the same order of magnitude than before.
+
+### Compression ratio
+
+| days | size | files | tar_size | . | 16 | 18 | 20 | 22 | 24 | 26 | 28 | 30 |
+| ---- | ---- | ----- | -------- | - | -- | -- | -- | -- | -- | -- | -- | -- |
+| **DwarFS** |
+| 1 | 416.94M | 8311 | 4.08M | . | 14.68M | 7.58M | 6.25M | 4.97M | 4.36M | 4.10M | 4.06M | 4.05M |
+| 2 | 832.06M | 16683 | 8.16M | . | 29.35M | 14.95M | 12.43M | 9.98M | 8.84M | 8.35M | 8.13M | 8.11M |
+| 4 | 1.59G | 28122 | 15.26M | . | 56.44M | 29.09M | 24.13M | 19.25M | 16.90M | 15.87M | 15.50M | 15.45M |
+| 8 | 3.25G | 63744 | 31.44M | . | 118.12M | 60.63M | 50.02M | 39.86M | 35.02M | 33.03M | 32.03M | 31.85M |
+| 16 | 6.49G | 133465 | 62.48M | . | 234.41M | 121.44M | 100.11M | 80.02M | 70.67M | 66.49M | 64.74M | 64.17M |
+| 32 | 12.94G | 241317 | 123.55M | . | 462.09M | 240.77M | 199.72M | 160.43M | 141.72M | 134.05M | 130.71M | 129.52M |
+| 64 | 25.97G | 479850 | 252.04M | . | 921.18M | 487.34M | 404.20M | 327.07M | 289.86M | 274.05M | 267.78M | 265.24M |
+| 128 | 50.88G | 957070 | 498.69M | . | 1.80G | 976.02M | 799.42M | 648.45M | 576.62M | 546.16M | 533.76M | 529.60M |
+| **DwarFS p** |
+| 1 | 416.94M | 8311 | 4.08M | . | 15.68M | 12.00M | 10.87M | 7.50M | 5.17M | 4.33M | 4.14M | 4.07M |
+| 2 | 832.06M | 16683 | 8.16M | . | 31.43M | 24.09M | 21.81M | 15.11M | 10.37M | 8.71M | 8.28M | 8.15M |
+| 4 | 1.59G | 28122 | 15.26M | . | 59.21M | 45.51M | 41.24M | 27.98M | 19.37M | 16.32M | 15.50M | 15.30M |
+| 8 | 3.25G | 63744 | 31.44M | . | 124.61M | 95.52M | 86.54M | 58.95M | 40.32M | 33.84M | 32.06M | 31.59M |
+| 16 | 6.49G | 133465 | 62.48M | . | 247.73M | 189.20M | 171.13M | 117.19M | 80.53M | 67.43M | 63.88M | 62.91M |
+| 32 | 12.94G | 241317 | 123.55M | . | 485.29M | 372.33M | 337.57M | 231.05M | 158.81M | 133.16M | 126.48M | 124.55M |
+| 64 | 25.97G | 479850 | 252.04M | . | 966.52M | 741.15M | 672.21M | 464.04M | 323.06M | 271.21M | 257.58M | 254.10M |
+| 128 | 50.88G | 957070 | 498.69M | . | 1.89G | 1.45G | 1.32G | 920.39M | 638.36M | 537.59M | 510.68M | 503.47M |
+
+![create-size-path](./results/create-size-path.png)
+
+#### Observations
+
+  * Compression ratio is overall worse with `order=path`, except for larger block size (>= 26) and simultaneously
+    larger archive size (>= 32) where it actually becomes significantly better (up to 5% better).
+
+### Reading time
+
+| days | size | files | tar_size | . | 16 | 18 | 20 | 22 | 24 | 26 | 28 | 30 |
+| ---- | ---- | ----- | -------- | - | -- | -- | -- | -- | -- | -- | -- | -- |
+| **DwarFS** |
+| 1 | 416.94M | 8311 | 4.08M | . | 1.46 | 1.11 | 1.21 | 1.11 | 1.08 | 1.04 | 0.98 | 0.87 |
+| 2 | 832.06M | 16683 | 8.16M | . | 1.53 | 1.35 | 1.42 | 1.45 | 1.76 | 2.42 | 9.78 | 1.34 |
+| 4 | 1.59G | 28122 | 15.26M | . | 1.82 | 1.56 | 1.62 | 1.76 | 2.62 | 6.17 | 72.53 | 581.45 |
+| 8 | 3.25G | 63744 | 31.44M | . | 2.13 | 2.10 | 2.14 | 2.38 | 3.82 | 14.37 | 279.39 | 1192.64 |
+| 16 | 6.49G | 133465 | 62.48M | . | 2.38 | 2.69 | 3.98 | 9.29 | 43.70 | 202.62 | 627.52 | 1476.21 |
+| 32 | 12.94G | 241317 | 123.55M | . | 2.54 | 3.41 | 6.57 | 19.76 | 82.76 | 373.29 | 1267.00 | 1955.76 |
+| 64 | 25.97G | 479850 | 252.04M | . | 2.71 | 3.54 | 7.50 | 23.09 | 101.58 | 431.40 | 1534.43 | 4466.31 |
+| 128 | 50.88G | 957070 | 498.69M | . | 2.73 | 3.82 | 8.41 | 27.89 | 122.90 | 479.00 | 1656.62 | 6438.70 |
+| **DwarFS p** |
+| 1 | 416.94M | 8311 | 4.08M | . | 1.52 | 1.51 | 1.71 | 1.37 | 1.19 | 1.11 | 0.96 | 0.99 |
+| 2 | 832.06M | 16683 | 8.16M | . | 1.51 | 1.52 | 1.69 | 1.39 | 1.20 | 1.12 | 1.06 | 1.07 |
+| 4 | 1.59G | 28122 | 15.26M | . | 1.52 | 1.57 | 1.74 | 1.40 | 1.19 | 1.11 | 1.06 | 1.06 |
+| 8 | 3.25G | 63744 | 31.44M | . | 1.49 | 1.53 | 1.67 | 1.40 | 1.17 | 1.13 | 1.07 | 1.07 |
+| 16 | 6.49G | 133465 | 62.48M | . | 1.54 | 1.57 | 1.74 | 1.43 | 1.19 | 1.16 | 1.09 | 1.06 |
+| 32 | 12.94G | 241317 | 123.55M | . | 1.52 | 1.57 | 1.74 | 1.43 | 1.24 | 1.14 | 1.10 | 1.10 |
+| 64 | 25.97G | 479850 | 252.04M | . | 1.56 | 1.56 | 1.73 | 1.41 | 1.21 | 1.14 | 1.14 | 1.08 |
+| 128 | 50.88G | 957070 | 498.69M | . | 1.58 | 1.52 | 1.69 | 1.38 | 1.18 | 1.13 | 1.09 | 1.07 |
+
+![create-size-path](./results/read-time-path.grep.png)
+
+#### Observations
+
+  * Thanks to the `order=path` option, read time become constant with archive size like for Tar and SquashFS,
+    and always remain twice as fast as SquashFS.
+  * Reading speed actually increases when block size increases.
+
+### Conclusion
+
+Disabling similarity file ordering with option `--order=path` completely solved the issue,
+with very fast and constant reading speed, and even allows higher compression ratios.
+
