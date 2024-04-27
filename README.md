@@ -422,3 +422,87 @@ As a consequence I ran again the benchmark with option `--order=path`.
 Disabling similarity file ordering with option `--order=path` completely solved the issue,
 with very fast and constant reading speed, and even allows higher compression ratios.
 
+## Analysis of compression algorithms
+
+Now let's focus on 32 days archives, and block sizes between 24 and 30, in order to verify
+if another compression algorithm looks better suited for our data.
+
+We also enable here options `--file-hash=none -B0` that should not have any value for our use case,
+and include in the results `lzma:9` obtained previously without these options, with label "ref".
+
+### Creation time
+
+| days | size | files | tar_size | . | 24 | 26 | 28 | 30 |
+| ---- | ---- | ----- | -------- | - | -- | -- | -- | -- |
+| **lzma:9 ref** |
+| 32 | 12.94G | 241317 | 123.55M | . | 326.44 | 381.09 | 426.86 | 822.48 |
+| **lzma:9** |
+| 32 | 12.94G | 241317 | 123.55M | . | 301.19 | 278.36 | 345.03 | 736.30 |
+| **zstd:21** |
+| 32 | 12.94G | 241317 | 123.55M | . | 1386.38 | 1336.94 | 1456.39 | 2935.86 |
+| **brotli:11** |
+| 32 | 12.94G | 241317 | 123.55M | . | 5850.28 | 5963.99 | 6435.07 | 12792.89 |
+
+#### Observations
+
+  * Creation time increases with block size for all algorithms, with a sudden increase
+    of almost x2 between 28 and 30.
+  * `zstd:21` is 4 times slower than `lzma:9`
+  * `brotli:11` is 20 times slower than `lzma:9`
+  * "ref" has slightly longer compression time, though not very consistent (10 to 30%)
+    
+### Compression ratio
+
+| days | size | files | tar_size | . | 24 | 26 | 28 | 30 |
+| ---- | ---- | ----- | -------- | - | -- | -- | -- | -- |
+| **lzma:9 ref** |
+| 32 | 12.94G | 241317 | 123.55M | . | 158.81M | 133.16M | 126.48M | 124.55M |
+| **lzma:9** |
+| 32 | 12.94G | 241317 | 123.55M | . | 161.61M | 133.58M | 125.53M | 123.53M |
+| **zstd:21** |
+| 32 | 12.94G | 241317 | 123.55M | . | 160.06M | 130.46M | 122.37M | 120.37M |
+| **brotli:11** |
+| 32 | 12.94G | 241317 | 123.55M | . | 167.03M | 147.19M | 142.14M | 140.91M |
+
+#### Observations
+
+  * `zstd:21` creates archives 2.5% smaller than `lzma:9`
+  * `brotli:11` creates archives 12% **larger** than `lzma:9`.
+  * "ref" has similar values
+
+### Reading time
+
+| days | size | files | tar_size | . | 24 | 26 | 28 | 30 |
+| ---- | ---- | ----- | -------- | - | -- | -- | -- | -- |
+| **lzma:9 ref** |
+| 32 | 12.94G | 241317 | 123.55M | . | 1.24 | 1.14 | 1.10 | 1.10 |
+| **lzma:9** |
+| 32 | 12.94G | 241317 | 123.55M | . | 1.22 | 1.16 | 1.10 | 1.02 |
+| **zstd:21** |
+| 32 | 12.94G | 241317 | 123.55M | . | 0.73 | 0.72 | 0.71 | 0.93 |
+| **brotli:11** |
+| 32 | 12.94G | 241317 | 123.55M | . | 0.84 | 0.77 | 0.75 | 0.78 |
+
+#### Observations
+
+  * `lzma` still exhibits reading times slightly decreasing with block sizes,
+    but other algorithms don't have clear tendencies.
+  * Both `zstd:21` and `brotli:11` are sensibly faster than `lzma`
+  * `zstd:21` is 36% faster than `lzma:9` for block size 28
+  * `brotli:11` is 27% faster than `lzma:9` for block size 28
+  * "ref" has similar values
+
+### Conclusion
+
+  * Both `zstd:21` and `brotli:11` are sensibly faster than `lzma`,
+    but `brotli:11` has actually significantly worse compression ratio,
+    while `zstd:21` has slightly better compression ratio.
+    But both `zstd:21` and `brotli:11` also have much higher compression time.
+  * Block size 30 exhibits only slightly better compression ratio, but
+    much longer compression time, maybe due to memory usage and parallelization.
+    As a consequence block sizes 26 and 28 look like a good compromise. Given that
+    smaller block size should exhibit better random access reading speed, require
+    less memory and less time for compression, 26 may be the best candidate.
+  * Options `--file-hash=none -B0` allows slightly faster compression time,
+    
+
