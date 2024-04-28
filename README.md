@@ -10,6 +10,8 @@ reading the content.
 - [Benchmark setup](#benchmark-setup)
 - [Initial Analysis](#initial-analysis)
 - [Analysis with order=path](#analysis-with-orderpath)
+- [Analysis of compression algorithms](#analysis-of-compression-algorithms)
+- [Analysis of zstd compression level](#analysis-of-zstd-compression-level)
 
 ## Context
 
@@ -500,9 +502,89 @@ and include in the results `lzma:9` obtained previously without these options, w
     But both `zstd:21` and `brotli:11` also have much higher compression time.
   * Block size 30 exhibits only slightly better compression ratio, but
     much longer compression time, maybe due to memory usage and parallelization.
-    As a consequence block sizes 26 and 28 look like a good compromise. Given that
-    smaller block size should exhibit better random access reading speed, require
-    less memory and less time for compression, 26 may be the best candidate.
+    As a consequence block sizes 26 and 28 look like a good compromise.
   * Options `--file-hash=none -B0` allows slightly faster compression time,
     
 
+## Analysis of zstd compression level
+
+Finally let's see if we can find a compression level for `zstd` with block size 26
+that has compression time similar or lower to `lzma:9`, while keeping a good
+compression ratio, in order to take advantage of its faster reading time.
+
+### Creation time
+
+| level | size | files | tar_size | . | 26 | 27 | 28 | 29 | 30 |
+| ----- | ---- | ----- | -------- | - | -- | -- | -- | -- | -- |
+| **lzma** |
+| 9 | 12.94G | 241317 | 123.55M | . | 278.56 | 269.24 | 349.60 | 503.16 | 743.11 |
+| **zstd** |
+| 19 | 12.94G | 241317 | 123.55M | . | 399.54 | 396.85 | 477.18 | 657.73 | 968.55 |
+| 20 | 12.94G | 241317 | 123.55M | . | 412.19 | 394.23 | 478.98 | 653.55 | 953.96 |
+| 21 | 12.94G | 241317 | 123.55M | . | 1348.14 | 1338.12 | 1488.31 | 2010.75 | 2990.18 |
+| 22 | 12.94G | 241317 | 123.55M | . | 2955.53 | 3210.01 | 3464.49 | 4769.61 | 7156.30 |
+
+#### Observations
+
+  * `zstd` is much slower than lzma at these compression levels (and we can see in
+    next section that lower levels are not competitive w.r.t. compression ratio)
+  * even `zstd:19` is significantly slower to compress than `lzma:9`.
+  * `zstd:22` is 10 times slower than `lzma:9`.
+  * `lzma` and `zstd` get similarly slower with larger block sizes, mainly
+    after 28.
+
+### Compression ratio
+
+| level | size | files | tar_size | . | 26 | 27 | 28 | 29 | 30 |
+| ----- | ---- | ----- | -------- | - | -- | -- | -- | -- | -- |
+| **lzma** |
+| 9 | 12.94G | 241317 | 123.55M | . | 133.58M | 128.22M | 125.54M | 124.17M | 123.53M |
+| **zstd** |
+| 19 | 12.94G | 241317 | 123.55M | . | 172.31M | 168.54M | 166.71M | 165.75M | 165.28M |
+| 20 | 12.94G | 241317 | 123.55M | . | 162.27M | 157.47M | 155.07M | 153.86M | 153.28M |
+| 21 | 12.94G | 241317 | 123.55M | . | 130.46M | 125.04M | 122.36M | 121.01M | 120.37M |
+| 22 | 12.94G | 241317 | 123.55M | . | 126.00M | 119.14M | 115.86M | 114.19M | 113.37M |
+
+#### Observations
+
+  * Only with level higher than 21 `zstd` has better compression ratio than `lzma`
+    (2.5% better at level 21, 7.5% better at level 22, but 23.5% worst at level 20).
+  * Block sizes 29 and 30 have very limited gain (1.5%), while 26 to 28 represents
+    a 6% gain.
+
+
+### Reading time
+
+| level | size | files | tar_size | . | 26 | 27 | 28 | 29 | 30 |
+| ----- | ---- | ----- | -------- | - | -- | -- | -- | -- | -- |
+| **lzma** |
+| 19 | 12.94G | 241317 | 123.55M | . | 1.16 | 1.10 | 1.05 | 1.15 | 1.04 |
+| **zstd** |
+| 19 | 12.94G | 241317 | 123.55M | . | 0.70 | 0.71 | 0.69 | 0.73 | 0.97 |
+| 20 | 12.94G | 241317 | 123.55M | . | 0.70 | 0.74 | 0.71 | 0.69 | 1.00 |
+| 21 | 12.94G | 241317 | 123.55M | . | 0.70 | 0.74 | 0.72 | 0.69 | 0.95 |
+| 22 | 12.94G | 241317 | 123.55M | . | 0.69 | 0.73 | 0.71 | 0.73 | 0.98 |
+
+#### Observations
+
+  * Reading time does not depend on compression level, so there is no new result
+    compared to the previous analysis: `zstd` is 35% faster than `lzma`.
+
+### Conclusion
+
+  * These experiments don't allow to identify an objectively better compromise
+    than `lzma:9`. There is no clear winner, and final choice depends on
+    what's more important for the application.
+  * `zstd` at levels below 21 have too bad compression ratio.
+  * `zstd:22` is more than twice as slow than `zstd:21` for compressing,
+    for a limited 5% gain of compression ratio.
+  * Choice between `zstd:21` and `lzma:9` becomes 35% faster read and
+    4 times slower creation.
+  * In the end, we can limit the choice between two alternatives:
+    * if we favor compression resources (time and memory), `lzma:9` with
+      block size 26 seems appropriate (133.25MB archive created in 280s with
+      one day reading time 1.1s).
+    * if we favor decompression time, `zstd:21` with block size 28 seems
+      appropriate (122.36MB archive created in 1500s with one day reading
+      time 0.7s). If we are willing to trade a doubled creation time for
+      5% better compression ratio, `zstd:22` can also fit.
